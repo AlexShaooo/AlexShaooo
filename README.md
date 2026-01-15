@@ -3,7 +3,7 @@
 ![GitHub followers](https://img.shields.io/github/followers/Shao0oo?style=social)
 ![GitHub stars](https://img.shields.io/github/stars/Shao0oo?style=social)
 
-Software Engineer at **Symbiokinetics** and 
+AI Researcher and Software Engineer at **Symbiokinetics** and 
 Undergrad Student in Mathematics at **UC Berkeley**
 
 **Languages**  
@@ -19,7 +19,8 @@ Undergrad Student in Mathematics at **UC Berkeley**
 ![MuJoCo](https://img.shields.io/badge/-MuJoCo-4A90D9?style=flat&logoColor=white)
 ![Isaac Sim](https://img.shields.io/badge/-Isaac%20Sim-76B900?style=flat&logo=nvidia&logoColor=white)
 
-#### Research & development interests:
+#### Research & development interests
+- 🧠 AI architecture and interpretability 
 - 🤖 Real-time robotic control systems
 - ⚙️ Embedded systems, motor control, and GPU programming
 - 🦾 Force/torque sensing & manipulation

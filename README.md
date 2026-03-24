@@ -1,7 +1,7 @@
 ## Alex Shao
-![Profile Views](https://komarev.com/ghpvc/?username=Shao0oo)
-![GitHub followers](https://img.shields.io/github/followers/Shao0oo?style=social)
-![GitHub stars](https://img.shields.io/github/stars/Shao0oo?style=social)
+![Profile Views](https://komarev.com/ghpvc/?username=AlexShaooo)
+![GitHub followers](https://img.shields.io/github/followers/AlexShaooo?style=social)
+![GitHub stars](https://img.shields.io/github/stars/AlexShaooo?style=social)
 
 AI Researcher and Software Engineer at **Symbiokinetics** and 
 Undergrad Student in Mathematics at **UC Berkeley**
@@ -26,7 +26,7 @@ Undergrad Student in Mathematics at **UC Berkeley**
 - 🦾 Force/torque sensing & manipulation
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github-profile-summary-cards.vercel.app/api/cards/profile-details?username=Shao0oo&theme=github_dark" />
-  <source media="(prefers-color-scheme: light)" srcset="https://github-profile-summary-cards.vercel.app/api/cards/profile-details?username=Shao0oo&theme=default" />
-  <img src="https://github-profile-summary-cards.vercel.app/api/cards/profile-details?username=Shao0oo&theme=default" />
+  <source media="(prefers-color-scheme: dark)" srcset="https://github-profile-summary-cards.vercel.app/api/cards/profile-details?username=AlexShaooo&theme=github_dark" />
+  <source media="(prefers-color-scheme: light)" srcset="https://github-profile-summary-cards.vercel.app/api/cards/profile-details?username=AlexShaooo&theme=default" />
+  <img src="https://github-profile-summary-cards.vercel.app/api/cards/profile-details?username=AlexShaooo&theme=default" />
 </picture>  

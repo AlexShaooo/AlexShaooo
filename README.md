@@ -5,7 +5,8 @@
 [![GitHub stars](https://img.shields.io/github/stars/AlexShaooo?style=social)](https://github.com/AlexShaooo)
 
 Founding AI Researcher and Engineer at **Symbiokinetics**: building robotic platforms for healthcare. 
-Studying Pure Mathematics at **UC Berkeley**: Abstract Algebra, Complex Analysis, Geometric Algebra.
+
+Studying Pure Mathematics at **UC Berkeley**: Differential Geometry, Abstract Algebra, Complex Analysis, Geometric Algebra, etc.
 
 **Languages**  
 ![Python](https://img.shields.io/badge/-Python-3776AB?style=flat&logo=python&logoColor=white)
@@ -25,10 +26,11 @@ Studying Pure Mathematics at **UC Berkeley**: Abstract Algebra, Complex Analysis
 ![Three.js](https://img.shields.io/badge/-Three.js-000000?style=flat&logo=threedotjs&logoColor=white)
 
 #### Research & development interests
-- 🧠 AI architecture, interpretability, Reinforcement Learning
-- 🤖 Real-time robotic control systems
-- ⚙️ Embedded systems, motor control, and GPU programming
-- 🦾 Force/torque sensing & manipulation
+- 🦾 Real-time robotic control systems
+- 🧠 Reinforcement learning, imitation learning, skill discovery
+- ⚙️ Embedded & distributed real-time systems
+- ⚡ GPU programming & HPC
+- 🔬 AI architecture & interpretability
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github-profile-summary-cards.vercel.app/api/cards/profile-details?username=AlexShaooo&theme=github_dark" />

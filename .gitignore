@@ -1,0 +1,7 @@
+# .gitignore
+
+# Pycache
+__pycache__
+
+# Reference images
+reference/

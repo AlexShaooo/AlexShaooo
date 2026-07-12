@@ -24,6 +24,18 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'          # >=21 for the built-in WebSocket the renderer uses
+
+      - name: Set up Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install system tools (img2webp + a monospace font for Chrome)
+        run: sudo apt-get update && sudo apt-get install -y webp fonts-dejavu-core
+
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -40,9 +52,15 @@ jobs:
           USER_NAME: ${{ secrets.USER_NAME }}
         run: python today.py
 
+      - name: Bake animated WebP cards
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+          SCALE: "2"                   # retina-crisp; set to 1 for lighter files
+        run: python tools/build_warhol.py
+
       - name: Commit updated cards
         run: |-
-          git add *.svg cache
+          git add *.svg *.webp cache
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
           git commit -m "Update profile stats" -a || echo "No changes to commit"

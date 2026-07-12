@@ -69,10 +69,16 @@ def quad(r, c):
 
 
 def single_grid(svg_path):
-    """The injected single portrait, 50 rows padded to 74 columns."""
+    """The injected single portrait, 50 rows padded to 74 columns.
+
+    Handles both tspan forms: content `<tspan ...>glyphs</tspan>` and empty
+    self-closing `<tspan .../>` (a blank row). today.py round-trips the SVG
+    through lxml, which rewrites empty tspans as self-closing, so the parser
+    must not treat `/>` as an opening tag (that would swallow following markup
+    into the row and render it as literal text)."""
     svg = open(svg_path, encoding="utf-8").read()
     block = re.search(r"<!--portrait:start-->(.*?)<!--portrait:end-->", svg, re.S).group(1)
-    rows = re.findall(r"<tspan[^>]*>(.*?)</tspan>", block, re.S)
+    rows = re.findall(r"<tspan\b[^>]*?(?:/>|>(.*?)</tspan>)", block, re.S)
     rows = [r.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">") for r in rows]
     rows = (rows + [""] * ROWS)[:ROWS]
     return [(r + " " * COLS)[:COLS] for r in rows]

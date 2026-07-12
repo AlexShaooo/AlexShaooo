@@ -9,23 +9,24 @@ curve; nothing animates live at view time.
 
 The single portrait is read from the committed card SVG (whatever today.py last
 wrote, so the baked frames carry live stats + graph). The half-resolution
-collage face is read from tools/half_<theme>.txt (committed; the source photo is
-gitignored, so the face is precomputed by tools/regen_half.py when the photo
-changes). No ImageMagick or photo needed here or in CI.
+collage face is read from tools/warhol/face/half_<theme>.txt (committed; the
+source photo is gitignored, so the face is precomputed by
+tools/warhol/face/regen_half.py when the photo changes). No ImageMagick or photo
+needed here or in CI.
 
-    python tools/warhol.py <theme> <out-dir>     # theme: light | dark
+    python tools/warhol/warhol.py <theme> <out-dir>     # theme: light | dark
 
 Writes <out-dir>/f####.svg + manifest.json (per-frame delays). The render +
-assemble steps (tools/warhol_render.js, tools/build_warhol.py) turn these into
-the animated WebP.
+assemble steps (tools/warhol/warhol_render.js, tools/warhol/build_warhol.py)
+turn these into the animated WebP.
 """
 import json
 import os
 import re
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+HERE = os.path.dirname(os.path.abspath(__file__))          # tools/warhol
+ROOT = os.path.dirname(os.path.dirname(HERE))              # repo root
 
 # --- layout, mirrored from portrait.py / build_cards.py -------------------
 COLS, ROWS = 74, 50
@@ -78,8 +79,8 @@ def single_grid(svg_path):
 
 
 def collage_grid(theme):
-    """Half-res face (tools/half_<theme>.txt) tiled 2x2 into a 50x74 grid."""
-    half = open(os.path.join(HERE, f"half_{theme}.txt"), encoding="utf-8").read().split("\n")
+    """Half-res face (face/half_<theme>.txt) tiled 2x2 into a 50x74 grid."""
+    half = open(os.path.join(HERE, "face", f"half_{theme}.txt"), encoding="utf-8").read().split("\n")
     half = (half + [""] * HR)[:HR]
     half = [(r + " " * HC)[:HC] for r in half]
     return ["".join(half[r if r < HR else r - HR][c if c < HC else c - HC]

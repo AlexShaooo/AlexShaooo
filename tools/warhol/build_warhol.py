@@ -13,8 +13,8 @@ Requirements: python3, node (>=21), a Chrome/Chromium (set CHROME_PATH if needed
 and img2webp (libwebp). Nothing writes outside a temp build dir except the two
 final .webp files.
 
-    python tools/build_warhol.py            # both themes at 2x
-    SCALE=1 python tools/build_warhol.py    # 1x
+    python tools/warhol/build_warhol.py            # both themes at 2x
+    SCALE=1 python tools/warhol/build_warhol.py    # 1x
 """
 import json
 import os
@@ -23,8 +23,8 @@ import subprocess
 import sys
 import tempfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+HERE = os.path.dirname(os.path.abspath(__file__))          # tools/warhol
+ROOT = os.path.dirname(os.path.dirname(HERE))              # repo root
 sys.path.insert(0, HERE)
 import warhol  # noqa: E402
 

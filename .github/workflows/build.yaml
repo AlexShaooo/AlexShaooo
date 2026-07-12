@@ -56,7 +56,7 @@ jobs:
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
           SCALE: "2"                   # retina-crisp; set to 1 for lighter files
-        run: python tools/build_warhol.py
+        run: python tools/warhol/build_warhol.py
 
       - name: Commit updated cards
         run: |-

@@ -2,16 +2,19 @@ import datetime
 from dateutil import relativedelta
 import requests
 import os
+import sys
 from lxml import etree
 import time
 import hashlib
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools'))
+import commit_graph
 
 # Fine-grained personal access token, read-only. Only three scopes are used:
 # Account permissions:    read:Followers
 # Repository permissions: read:Contents (commit history + additions/deletions), read:Metadata
 HEADERS = {'authorization': 'token '+ os.environ['ACCESS_TOKEN']}
 USER_NAME = os.environ['USER_NAME'] # 'AlexShaooo'
-QUERY_COUNT = {'user_getter': 0, 'follower_getter': 0, 'graph_repos_stars': 0, 'recursive_loc': 0, 'graph_commits': 0, 'loc_query': 0}
+QUERY_COUNT = {'user_getter': 0, 'follower_getter': 0, 'graph_repos_stars': 0, 'recursive_loc': 0, 'graph_commits': 0, 'graph_monthly': 0, 'loc_query': 0}
 
 # SVG templates to update. Any that are missing are skipped, so the portrait and
 # monogram variants can both stay live without touching this list.
@@ -71,6 +74,67 @@ def graph_commits(start_date, end_date):
     variables = {'start_date': start_date,'end_date': end_date, 'login': USER_NAME}
     request = simple_request(graph_commits.__name__, query, variables)
     return int(request.json()['data']['user']['contributionsCollection']['contributionCalendar']['totalContributions'])
+
+
+def graph_monthly(start_date, end_date):
+    """
+    Returns (values, ticks) for the contribution line graph: 12 monthly totals
+    (oldest -> newest) plus ~6 month/day x-axis tick labels, over the last year.
+    Uses the daily contribution calendar and buckets it by calendar month.
+    """
+    query_count('graph_monthly')
+    query = '''
+    query($start_date: DateTime!, $end_date: DateTime!, $login: String!) {
+        user(login: $login) {
+            contributionsCollection(from: $start_date, to: $end_date) {
+                contributionCalendar {
+                    weeks {
+                        contributionDays {
+                            date
+                            contributionCount
+                        }
+                    }
+                }
+            }
+        }
+    }'''
+    variables = {'start_date': start_date, 'end_date': end_date, 'login': USER_NAME}
+    request = simple_request(graph_monthly.__name__, query, variables)
+    weeks = request.json()['data']['user']['contributionsCollection']['contributionCalendar']['weeks']
+    return bucket_monthly(weeks)
+
+
+def bucket_monthly(weeks):
+    """
+    Bucket daily contribution counts into 12 month totals (oldest -> newest) and
+    build ~6 evenly spaced month/day tick labels. Split out from graph_monthly so
+    it can be unit-tested without hitting the API.
+    """
+    months = {}  # 'YYYY-MM' -> total
+    for week in weeks:
+        for day in week['contributionDays']:
+            key = day['date'][:7]
+            months[key] = months.get(key, 0) + int(day['contributionCount'])
+    keys = sorted(months)[-12:]                 # last 12 calendar months
+    values = [months[k] for k in keys]
+    ticks = []
+    n = 6 if len(keys) >= 6 else len(keys)
+    for i in range(n):
+        k = keys[round(i / (n - 1) * (len(keys) - 1))] if n > 1 else keys[0]
+        ticks.append(k[5:7] + '/01')            # month/day label, first of month
+    return values, ticks
+
+
+def inject_graph(filename, values, ticks):
+    """
+    Write a freshly rendered line graph into the card's graph markers.
+    Idempotent: re-running overwrites the previous graph in place.
+    """
+    with open(filename, 'r', encoding='utf-8') as f:
+        svg = f.read()
+    svg = commit_graph.inject(svg, values, ticks, dark='dark' in os.path.basename(filename))
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(svg)
 
 
 def graph_repos_stars(count_type, owner_affiliation, cursor=None, add_loc=0, del_loc=0):
@@ -441,16 +505,24 @@ if __name__ == '__main__':
     repo_data, repo_time = perf_counter(graph_repos_stars, 'repos', ['OWNER'])
     contrib_data, contrib_time = perf_counter(graph_repos_stars, 'repos', ['OWNER', 'COLLABORATOR', 'ORGANIZATION_MEMBER'])
     follower_data, follower_time = perf_counter(follower_getter, USER_NAME)
+    # 12-month contribution line graph.
+    # contributionsCollection accepts at most a 1-year window; use 365 days, and
+    # the same 'YYYY-MM-DDTHH:MM:SSZ' DateTime format as the rest of the queries.
+    _now = datetime.datetime.utcnow()
+    graph_start = (_now - datetime.timedelta(days=365)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    graph_end = _now.strftime('%Y-%m-%dT%H:%M:%SZ')
+    (monthly_values, monthly_ticks), monthly_time = perf_counter(graph_monthly, graph_start, graph_end)
 
     for index in range(len(total_loc)-1): total_loc[index] = '{:,}'.format(total_loc[index]) # format added, deleted, and total LOC
 
     for svg in SVG_FILES:
         if os.path.exists(svg):
             svg_overwrite(svg, age_data, commit_data, star_data, repo_data, contrib_data, follower_data, total_loc[:-1])
+            inject_graph(svg, monthly_values, monthly_ticks)
 
     # move cursor to override 'Calculation times:' with 'Total function time:' and the total function time, then move cursor back
     print('\033[F\033[F\033[F\033[F\033[F\033[F\033[F\033[F',
-        '{:<21}'.format('Total function time:'), '{:>11}'.format('%.4f' % (user_time + age_time + loc_time + commit_time + star_time + repo_time + contrib_time)),
+        '{:<21}'.format('Total function time:'), '{:>11}'.format('%.4f' % (user_time + age_time + loc_time + commit_time + star_time + repo_time + contrib_time + monthly_time)),
         ' s \033[E\033[E\033[E\033[E\033[E\033[E\033[E\033[E', sep='')
 
     print('Total GitHub GraphQL API calls:', '{:>3}'.format(sum(QUERY_COUNT.values())))

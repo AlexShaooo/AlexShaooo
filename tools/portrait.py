@@ -102,12 +102,13 @@ def render(path, invert=False, crop=None, bc=None, width=COLS, height=ROWS):
         cells[(x, y)] = 0.299 * r + 0.587 * g + 0.114 * b
         maxx, maxy = max(maxx, x), max(maxy, y)
 
+    n = len(RAMP) - 1                 # last ramp index; RAMP length is free to change
     rows = []
     for y in range(maxy + 1):
         row = []
         for x in range(maxx + 1):
-            idx = min(9, int(cells.get((x, y), 0) / 255 * 9))
-            row.append(RAMP[9 - idx] if invert else RAMP[idx])
+            idx = min(n, int(cells.get((x, y), 0) / 255 * n))
+            row.append(RAMP[n - idx] if invert else RAMP[idx])
         rows.append("".join(row).rstrip())
     return rows
 

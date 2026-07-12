@@ -78,6 +78,7 @@ def _rows():
     H = lambda label: rows.append(f'<tspan class="hdr">{label}</tspan><tspan class="cc"> {rule(label)}</tspan>')
     R = rows.append
     B = lambda: rows.append('<tspan class="cc">. </tspan>')
+    E = lambda: rows.append('')   # empty spacer: counted for spacing, renders nothing (no dot)
 
     H('alexshao@github')
     R('<tspan class="cc">. </tspan><tspan class="key">Role</tspan>:<tspan class="cc"> ..... </tspan><tspan class="value">Researcher @ Symbiokinetics</tspan>')
@@ -101,11 +102,16 @@ def _rows():
     H('─ GitHub Stats')
     R('<tspan class="cc">. </tspan><tspan class="key">Repos</tspan>:<tspan class="cc" id="repo_data_dots"> .... </tspan><tspan class="value" id="repo_data">0</tspan> {<tspan class="key">Contributed</tspan>: <tspan class="value" id="contrib_data">0</tspan>} | <tspan class="key">Stars</tspan>:<tspan class="cc" id="star_data_dots"> ........... </tspan><tspan class="value" id="star_data">0</tspan>')
     R('<tspan class="cc">. </tspan><tspan class="key">Commits</tspan>:<tspan class="cc" id="commit_data_dots"> ................. </tspan><tspan class="value" id="commit_data">0</tspan> | <tspan class="key">Followers</tspan>:<tspan class="cc" id="follower_data_dots"> ....... </tspan><tspan class="value" id="follower_data">0</tspan>')
-    R('<tspan class="cc">. </tspan><tspan class="key">Lines of Code</tspan>:<tspan class="cc" id="loc_data_dots">. </tspan><tspan class="value" id="loc_data">0</tspan> ( <tspan class="addColor" id="loc_add">0</tspan><tspan class="addColor">++</tspan>, <tspan id="loc_del_dots"> </tspan><tspan class="delColor" id="loc_del">0</tspan><tspan class="delColor">--</tspan> )')
-    B()
-    H('─ Links')
-    R('<tspan class="cc">. </tspan><tspan class="value">alexshao.net</tspan><tspan class="cc">  ·  </tspan><tspan class="value">github.com/AlexShaooo</tspan><tspan class="cc">  ·  </tspan><tspan class="value">in/alex-shao</tspan>')
-    R('<tspan class="cc">. </tspan><tspan class="key">Email</tspan>:<tspan class="cc"> </tspan><tspan class="value">alex.w.shao@gmail.com</tspan>')
+    R('<tspan class="cc">. </tspan><tspan class="key">Lines of Code</tspan>: <tspan class="cc" id="loc_data_dots">. </tspan><tspan class="value" id="loc_data">0</tspan> ( <tspan class="addColor" id="loc_add">0</tspan><tspan class="addColor">++</tspan>, <tspan id="loc_del_dots"> </tspan><tspan class="delColor" id="loc_del">0</tspan><tspan class="delColor">--</tspan> )')
+    # The Links section is replaced by the contribution line graph (see
+    # commit_graph.py). today.py injects the graph between the <!--graph--> markers
+    # in the template; these four empty rows reserve its space and keep every
+    # section above at the exact same y as before (build_right counts rows for
+    # spacing). They emit nothing, so no stray "." dots land over the graph.
+    E()
+    E()
+    E()
+    E()
     return rows
 
 
@@ -116,6 +122,8 @@ def build_right():
     dy = (BOTTOM - Y0) / (len(rows) - 1)
     out = []
     for i, r in enumerate(rows):
+        if not r:                # empty spacer: reserves the row for spacing, emits nothing
+            continue
         y = round(Y0 + i * dy, 2)
         out.append(r.replace("<tspan ", f'<tspan x="390" y="{y}" ', 1))
     return "\n".join(out)
@@ -143,6 +151,7 @@ text, tspan {{white-space: pre;}}
 <text x="390" y="30" fill="{fg}">
 {right}
 </text>
+<!--graph:start--><!--graph:end-->
 </svg>
 '''
 
@@ -171,6 +180,7 @@ text, tspan {{white-space: pre;}}
 <text x="390" y="30" fill="{fg}">
 {right}
 </text>
+<!--graph:start--><!--graph:end-->
 </svg>
 '''
 

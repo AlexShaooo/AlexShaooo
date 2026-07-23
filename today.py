@@ -14,7 +14,7 @@ import commit_graph
 # Repository permissions: read:Contents (commit history + additions/deletions), read:Metadata
 HEADERS = {'authorization': 'token '+ os.environ['ACCESS_TOKEN']}
 USER_NAME = os.environ['USER_NAME'] # 'AlexShaooo'
-QUERY_COUNT = {'user_getter': 0, 'follower_getter': 0, 'graph_repos_stars': 0, 'recursive_loc': 0, 'graph_commits': 0, 'graph_monthly': 0, 'loc_query': 0}
+QUERY_COUNT = {'user_getter': 0, 'follower_getter': 0, 'graph_repos_stars': 0, 'recursive_loc': 0, 'contribution_years': 0, 'commits_in_year': 0, 'repos_contributed_to': 0, 'graph_monthly': 0, 'loc_query': 0}
 
 # SVG templates to update. Any that are missing are skipped, so the portrait and
 # monogram variants can both stay live without touching this list.
@@ -56,24 +56,74 @@ def simple_request(func_name, query, variables):
     raise Exception(func_name, ' has failed with a', request.status_code, request.text, QUERY_COUNT)
 
 
-def graph_commits(start_date, end_date):
+def contribution_years():
     """
-    Uses GitHub's GraphQL v4 API to return my total commit count
+    Returns the list of years (ints) in which the account has any contributions.
+    contributionsCollection only spans one year per query, so an all-time commit total is
+    built by iterating over these years.
     """
-    query_count('graph_commits')
+    query_count('contribution_years')
     query = '''
-    query($start_date: DateTime!, $end_date: DateTime!, $login: String!) {
+    query($login: String!) {
         user(login: $login) {
-            contributionsCollection(from: $start_date, to: $end_date) {
-                contributionCalendar {
-                    totalContributions
-                }
+            contributionsCollection {
+                contributionYears
             }
         }
     }'''
-    variables = {'start_date': start_date,'end_date': end_date, 'login': USER_NAME}
-    request = simple_request(graph_commits.__name__, query, variables)
-    return int(request.json()['data']['user']['contributionsCollection']['contributionCalendar']['totalContributions'])
+    request = simple_request(contribution_years.__name__, query, {'login': USER_NAME})
+    return request.json()['data']['user']['contributionsCollection']['contributionYears']
+
+
+def commits_in_year(year):
+    """
+    Returns {'commits', 'restricted'} for a single calendar year. With this account's own
+    token and 'Include private contributions on my profile' enabled,
+    totalCommitContributions already includes private commits, so restricted is expected to
+    be 0. restricted is returned only for the first-run sanity check in __main__; it is
+    never added in, because it aggregates all restricted types (PRs, issues, reviews), not
+    just commits.
+    """
+    query_count('commits_in_year')
+    query = '''
+    query($login: String!, $from: DateTime!, $to: DateTime!) {
+        user(login: $login) {
+            contributionsCollection(from: $from, to: $to) {
+                totalCommitContributions
+                restrictedContributionsCount
+            }
+        }
+    }'''
+    variables = {'login': USER_NAME, 'from': f'{year}-01-01T00:00:00Z', 'to': f'{year}-12-31T23:59:59Z'}
+    request = simple_request(commits_in_year.__name__, query, variables)
+    collection = request.json()['data']['user']['contributionsCollection']
+    return {'commits': int(collection['totalCommitContributions']), 'restricted': int(collection['restrictedContributionsCount'])}
+
+
+def all_time_commits():
+    """
+    Sum commit contributions across every year the account has activity. Counts commits
+    GitHub attributes to me across all repositories (owned or not, private included when
+    the profile setting is on), not just owned-repo default-branch history.
+    """
+    per_year = [commits_in_year(year) for year in contribution_years()]
+    restricted = sum(year['restricted'] for year in per_year)
+    if restricted:
+        # With my own token this should be 0. Nonzero means private contributions are being
+        # withheld from the totals, usually because 'Include private contributions on my
+        # profile' is off. Printed to stderr so it does not disturb the stdout card output.
+        print(f'note: {restricted} restricted (private) contributions are aggregated and not '
+              'in the commit total; enable "Include private contributions on my profile" to count them',
+              file=sys.stderr)
+    return sum_commit_years([year['commits'] for year in per_year])
+
+
+def sum_commit_years(per_year_counts):
+    """
+    Sum a list of per-year commit counts. Split out from all_time_commits so it can be
+    unit-tested without hitting the API.
+    """
+    return sum(per_year_counts)
 
 
 def graph_monthly(start_date, end_date):
@@ -408,21 +458,6 @@ def find_and_replace(root, element_id, new_text):
         element.text = new_text
 
 
-def commit_counter(comment_size):
-    """
-    Counts up my total commits, using the cache file created by cache_builder.
-    """
-    total_commits = 0
-    filename = 'cache/'+hashlib.sha256(USER_NAME.encode('utf-8')).hexdigest()+'.txt' # Use the same filename as cache_builder
-    with open(filename, 'r') as f:
-        data = f.readlines()
-    cache_comment = data[:comment_size] # save the comment block
-    data = data[comment_size:] # remove those lines
-    for line in data:
-        total_commits += int(line.split()[2])
-    return total_commits
-
-
 def user_getter(username):
     """
     Returns the account ID and creation time of the user
@@ -454,6 +489,25 @@ def follower_getter(username):
     }'''
     request = simple_request(follower_getter.__name__, query, {'login': username})
     return int(request.json()['data']['user']['followers']['totalCount'])
+
+
+def repos_contributed_to():
+    """
+    Returns the number of repositories I have contributed to but do not own (external
+    contributions). repositoriesContributedTo excludes my own repos by default; privacy is
+    left unset so private contributed repos count too.
+    """
+    query_count('repos_contributed_to')
+    query = '''
+    query($login: String!) {
+        user(login: $login) {
+            repositoriesContributedTo(first: 1, contributionTypes: [COMMIT, PULL_REQUEST, ISSUE, PULL_REQUEST_REVIEW]) {
+                totalCount
+            }
+        }
+    }'''
+    request = simple_request(repos_contributed_to.__name__, query, {'login': USER_NAME})
+    return int(request.json()['data']['user']['repositoriesContributedTo']['totalCount'])
 
 
 def query_count(funct_id):
@@ -498,12 +552,15 @@ if __name__ == '__main__':
     formatter('account data', user_time)
     age_data, age_time = perf_counter(elapsed_since, datetime.datetime.strptime(acc_date, '%Y-%m-%dT%H:%M:%SZ'))
     formatter('account age', age_time)
+    # LOC covers only repos this token can read (my owned repos, public and private).
+    # It cannot include lines from external contributions: GitHub's contribution API
+    # exposes no additions/deletions, so LOC requires per-repo Contents access.
     total_loc, loc_time = perf_counter(loc_query, ['OWNER', 'COLLABORATOR', 'ORGANIZATION_MEMBER'], 7)
     formatter('LOC (cached)', loc_time) if total_loc[-1] else formatter('LOC (no cache)', loc_time)
-    commit_data, commit_time = perf_counter(commit_counter, 7)
+    commit_data, commit_time = perf_counter(all_time_commits)
     star_data, star_time = perf_counter(graph_repos_stars, 'stars', ['OWNER'])
     repo_data, repo_time = perf_counter(graph_repos_stars, 'repos', ['OWNER'])
-    contrib_data, contrib_time = perf_counter(graph_repos_stars, 'repos', ['OWNER', 'COLLABORATOR', 'ORGANIZATION_MEMBER'])
+    contrib_data, contrib_time = perf_counter(repos_contributed_to)
     follower_data, follower_time = perf_counter(follower_getter, USER_NAME)
     # 12-month contribution line graph.
     # contributionsCollection accepts at most a 1-year window; use 365 days, and

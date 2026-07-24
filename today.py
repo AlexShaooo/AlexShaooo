@@ -14,7 +14,7 @@ import commit_graph
 # Repository permissions: read:Contents (commit history + additions/deletions), read:Metadata
 HEADERS = {'authorization': 'token '+ os.environ['ACCESS_TOKEN']}
 USER_NAME = os.environ['USER_NAME'] # 'AlexShaooo'
-QUERY_COUNT = {'user_getter': 0, 'follower_getter': 0, 'graph_repos_stars': 0, 'recursive_loc': 0, 'contribution_years': 0, 'commits_in_year': 0, 'repos_contributed_to': 0, 'graph_monthly': 0, 'loc_query': 0}
+QUERY_COUNT = {'user_getter': 0, 'follower_getter': 0, 'graph_repos_stars': 0, 'recursive_loc': 0, 'contribution_years': 0, 'contributions_in_year': 0, 'graph_monthly': 0, 'loc_query': 0}
 
 # SVG templates to update. Any that are missing are skipped, so the portrait and
 # monogram variants can both stay live without touching this list.
@@ -59,72 +59,58 @@ def simple_request(func_name, query, variables):
 
 def contribution_years():
     """
-    Returns the list of years (ints) in which the account has any contributions.
-    contributionsCollection only spans one year per query, so an all-time commit total is
-    built by iterating over these years.
+    Years (ints) in which the account has any contributions. contributionsCollection spans
+    at most one year per query, so an all-time total is assembled by iterating these years.
     """
     query_count('contribution_years')
     query = '''
     query($login: String!) {
         user(login: $login) {
-            contributionsCollection {
-                contributionYears
-            }
+            contributionsCollection { contributionYears }
         }
     }'''
     request = simple_request(contribution_years.__name__, query, {'login': USER_NAME})
     return request.json()['data']['user']['contributionsCollection']['contributionYears']
 
 
-def commits_in_year(year):
+def all_time_contributions():
     """
-    Returns {'commits', 'restricted'} for a single calendar year. With this account's own
-    token and 'Include private contributions on my profile' enabled,
-    totalCommitContributions already includes private commits, so restricted is expected to
-    be 0. restricted is returned only for the first-run sanity check in __main__; it is
-    never added in, because it aggregates all restricted types (PRs, issues, reviews), not
-    just commits.
+    Total contributions (commits + PRs + issues + reviews) across every contribution year,
+    matching the profile's contribution graph. contributionCalendar.totalContributions
+    already includes private ("restricted") contributions when 'Include private
+    contributions on my profile' is on, so this is the private-inclusive figure. GitHub
+    exposes no all-time field and caps each query at one year, hence the per-year loop.
+
+    If the token can only see public totals (e.g. a fine-grained PAT), restricted comes
+    back 0 and the sum is public-only; a note is printed to stderr so the low number is not
+    mistaken for real. A classic repo/read:user token returns the private-inclusive total.
     """
-    query_count('commits_in_year')
-    query = '''
-    query($login: String!, $from: DateTime!, $to: DateTime!) {
-        user(login: $login) {
-            contributionsCollection(from: $from, to: $to) {
-                totalCommitContributions
-                restrictedContributionsCount
+    total, restricted = 0, 0
+    now = datetime.datetime.utcnow()
+    for year in contribution_years():
+        query_count('contributions_in_year')
+        # Cap the current year at now; a future 'to' can make GitHub return 0 for the year.
+        end = min(datetime.datetime(year, 12, 31, 23, 59, 59), now)
+        query = '''
+        query($login: String!, $from: DateTime!, $to: DateTime!) {
+            user(login: $login) {
+                contributionsCollection(from: $from, to: $to) {
+                    contributionCalendar { totalContributions }
+                    restrictedContributionsCount
+                }
             }
-        }
-    }'''
-    variables = {'login': USER_NAME, 'from': f'{year}-01-01T00:00:00Z', 'to': f'{year}-12-31T23:59:59Z'}
-    request = simple_request(commits_in_year.__name__, query, variables)
-    collection = request.json()['data']['user']['contributionsCollection']
-    return {'commits': int(collection['totalCommitContributions']), 'restricted': int(collection['restrictedContributionsCount'])}
-
-
-def all_time_commits():
-    """
-    Sum commit contributions across every year the account has activity. Counts commits
-    GitHub attributes to me across all repositories (owned or not, private included when
-    the profile setting is on), not just owned-repo default-branch history.
-    """
-    per_year = [commits_in_year(year) for year in contribution_years()]
-    restricted = sum(year['restricted'] for year in per_year)
-    if restricted:
-        # With my own token this should be 0. Nonzero means private contributions are being
-        # withheld from the totals, usually because 'Include private contributions on my
-        # profile' is off. Printed to stderr so it does not disturb the stdout card output.
-        print(f'note: {restricted} restricted (private) contributions are aggregated and not '
-              'in the commit total; enable "Include private contributions on my profile" to count them',
+        }'''
+        variables = {'login': USER_NAME,
+                     'from': f'{year}-01-01T00:00:00Z',
+                     'to': end.strftime('%Y-%m-%dT%H:%M:%SZ')}
+        coll = simple_request('contributions_in_year', query, variables).json()['data']['user']['contributionsCollection']
+        total += int(coll['contributionCalendar']['totalContributions'])
+        restricted += int(coll['restrictedContributionsCount'])
+    if restricted == 0:
+        print('note: 0 private (restricted) contributions counted; the token is returning '
+              'public-only totals. Use a classic repo/read:user token to include private.',
               file=sys.stderr)
-    return sum_commit_years([year['commits'] for year in per_year])
-
-
-def sum_commit_years(per_year_counts):
-    """
-    Sum a list of per-year commit counts. Split out from all_time_commits so it can be
-    unit-tested without hitting the API.
-    """
-    return sum(per_year_counts)
+    return total
 
 
 def graph_monthly(start_date, end_date):
@@ -415,17 +401,16 @@ def stars_counter(data):
     return total_stars
 
 
-def svg_overwrite(filename, age_data, commit_data, star_data, repo_data, contrib_data, follower_data, loc_data):
+def svg_overwrite(filename, age_data, contributions_data, star_data, repo_data, follower_data, loc_data):
     """
     Parse SVG files and update elements with my account age, commits, stars, repositories, and lines written
     """
     tree = etree.parse(filename)
     root = tree.getroot()
     justify_format(root, 'age_data', age_data, 22)
-    justify_format(root, 'commit_data', commit_data, 22)
+    justify_format(root, 'contributions_data', contributions_data, 16)
     justify_format(root, 'star_data', star_data, 14)
-    justify_format(root, 'repo_data', repo_data, 6)
-    justify_format(root, 'contrib_data', contrib_data)
+    justify_format(root, 'repo_data', repo_data, 24)   # 24 = commit's 22 + 2, so ' | ' aligns under the Commits row
     justify_format(root, 'follower_data', follower_data, 10)
     justify_format(root, 'loc_data', loc_data[2], 9)
     justify_format(root, 'loc_add', loc_data[0])
@@ -492,25 +477,6 @@ def follower_getter(username):
     return int(request.json()['data']['user']['followers']['totalCount'])
 
 
-def repos_contributed_to():
-    """
-    Returns the number of repositories I have contributed to but do not own (external
-    contributions). repositoriesContributedTo excludes my own repos by default; privacy is
-    left unset so private contributed repos count too.
-    """
-    query_count('repos_contributed_to')
-    query = '''
-    query($login: String!) {
-        user(login: $login) {
-            repositoriesContributedTo(first: 1, contributionTypes: [COMMIT, PULL_REQUEST, ISSUE, PULL_REQUEST_REVIEW]) {
-                totalCount
-            }
-        }
-    }'''
-    request = simple_request(repos_contributed_to.__name__, query, {'login': USER_NAME})
-    return int(request.json()['data']['user']['repositoriesContributedTo']['totalCount'])
-
-
 def query_count(funct_id):
     """
     Counts how many times the GitHub GraphQL API is called
@@ -558,10 +524,9 @@ if __name__ == '__main__':
     # exposes no additions/deletions, so LOC requires per-repo Contents access.
     total_loc, loc_time = perf_counter(loc_query, ['OWNER', 'COLLABORATOR', 'ORGANIZATION_MEMBER'], 7)
     formatter('LOC (cached)', loc_time) if total_loc[-1] else formatter('LOC (no cache)', loc_time)
-    commit_data, commit_time = perf_counter(all_time_commits)
+    contributions_data, contributions_time = perf_counter(all_time_contributions)
     star_data, star_time = perf_counter(graph_repos_stars, 'stars', ['OWNER'])
     repo_data, repo_time = perf_counter(graph_repos_stars, 'repos', ['OWNER'])
-    contrib_data, contrib_time = perf_counter(repos_contributed_to)
     follower_data, follower_time = perf_counter(follower_getter, USER_NAME)
     # 12-month contribution line graph.
     # contributionsCollection accepts at most a 1-year window; use 365 days, and
@@ -575,12 +540,12 @@ if __name__ == '__main__':
 
     for svg in SVG_FILES:
         if os.path.exists(svg):
-            svg_overwrite(svg, age_data, commit_data, star_data, repo_data, contrib_data, follower_data, total_loc[:-1])
+            svg_overwrite(svg, age_data, contributions_data, star_data, repo_data, follower_data, total_loc[:-1])
             inject_graph(svg, monthly_values, monthly_ticks)
 
     # move cursor to override 'Calculation times:' with 'Total function time:' and the total function time, then move cursor back
     print('\033[F\033[F\033[F\033[F\033[F\033[F\033[F\033[F',
-        '{:<21}'.format('Total function time:'), '{:>11}'.format('%.4f' % (user_time + age_time + loc_time + commit_time + star_time + repo_time + contrib_time + monthly_time)),
+        '{:<21}'.format('Total function time:'), '{:>11}'.format('%.4f' % (user_time + age_time + loc_time + contributions_time + star_time + repo_time + monthly_time)),
         ' s \033[E\033[E\033[E\033[E\033[E\033[E\033[E\033[E', sep='')
 
     print('Total GitHub GraphQL API calls:', '{:>3}'.format(sum(QUERY_COUNT.values())))

@@ -8,18 +8,18 @@ Requirements: ImageMagick (`magick` on PATH). No Python packages needed; the
 luminance ramp is applied in pure stdlib from ImageMagick's text pixel dump.
 
 Grid: COLS columns x 50 rows, mapped to <tspan x="15" y="30..520" step 10>, which
-is exactly the left <text> block of dark_mode.svg / light_mode.svg (rendered at
+is exactly the left <text> block of assets/left_dark.svg / assets/left_light.svg (rendered at
 8px, half the body size). COLS is derived so the portrait's right edge clears the
-text column at x=390; the photo is cover-scaled and center-cropped to the grid so
-the face keeps its proportions (no stretching).
+seam at x=384; the photo is cover-scaled and center-cropped to the grid so the
+face keeps its proportions (no stretching).
 
 Examples:
     # preview only (prints ASCII + the <tspan> block)
     python tools/portrait.py portrait.jpeg
 
-    # write the portrait into both cards, same framing, opposite ramps
-    python tools/portrait.py portrait.jpeg          --inject dark_mode.svg
-    python tools/portrait.py portrait.jpeg --invert --inject light_mode.svg
+    # write the portrait into both left sources, same framing, opposite ramps
+    python tools/portrait.py portrait.jpeg          --inject assets/left_dark.svg
+    python tools/portrait.py portrait.jpeg --invert --inject assets/left_light.svg
 
 Both cards render from the same photo, so the faces line up exactly (the light
 card's glyphs are the dark card's inverse).
@@ -27,12 +27,12 @@ card's glyphs are the dark card's inverse).
 Knobs:
     --invert         dark->dense instead of bright->dense. Puts the dense glyphs
                      on the dark parts of the photo, for a card that draws dark
-                     ink on a light background (light_mode.svg).
+                     ink on a light background (assets/left_light.svg).
     --crop WxH+X+Y   ImageMagick crop geometry applied before the grid fit
     --bc BxC         brightness-contrast, e.g. 0x10
     --width / --height   grid size (advanced; defaults are layout-derived)
 
-The card SVGs must contain a pair of marker comments around the left tspans:
+The left source SVGs must contain a pair of marker comments around the tspans:
     <!--portrait:start-->
     ... generated tspans ...
     <!--portrait:end-->

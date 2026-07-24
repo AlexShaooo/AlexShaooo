@@ -7,12 +7,13 @@ instant, squashed vertically by the flip's scaleY, coloured foreground (single)
 or by quadrant (collage). Motion is smooth because we sample the continuous flip
 curve; nothing animates live at view time.
 
-The single portrait is read from the committed card SVG (whatever today.py last
-wrote, so the baked frames carry live stats + graph). The half-resolution
-collage face is read from tools/warhol/face/half_<theme>.txt (committed; the
-source photo is gitignored, so the face is precomputed by
+The single portrait is read from the LEFT source SVG (assets/left_<theme>.svg,
+the portrait side only). The frames carry just the flip, no stats: the stats live
+in the separate right panel (assets/*_mode.svg) that today.py rewrites.
+The half-resolution collage face is read from tools/warhol/face/half_<theme>.txt
+(committed; the source photo is gitignored, so the face is precomputed by
 tools/warhol/face/regen_half.py when the photo changes). No ImageMagick or photo
-needed here or in CI.
+needed here.
 
     python tools/warhol/warhol.py <theme> <out-dir>     # theme: light | dark
 
@@ -33,10 +34,11 @@ COLS, ROWS = 74, 50
 X0, Y0, DY, FS = 15, 30, 10, 8
 CW = 0.613 * FS                         # fixed cell advance (spacing is defined, not inherited)
 HC, HR = COLS // 2, ROWS // 2           # 37 x 25 per quadrant
+PANEL_W, CARD_H = 384, 540              # left image size (SEAM_X / CARD_H in build_cards.py)
 
 THEMES = {
-    "light": {"file": "light_mode.svg", "fg": "#24292f"},
-    "dark":  {"file": "dark_mode.svg",  "fg": "#c9d1d9"},
+    "light": {"file": "assets/left_light.svg", "fg": "#24292f"},
+    "dark":  {"file": "assets/left_dark.svg",  "fg": "#c9d1d9"},
 }
 # Pastel quadrant colours [top-left, top-right, bottom-left, bottom-right],
 # tuned per ground: light inks darker, dark inks lighter.
@@ -161,7 +163,7 @@ def bake(theme, outdir):
         name = f"f{i:04d}.svg"
         open(os.path.join(outdir, name), "w", encoding="utf-8").write(svg)
         manifest.append({"svg": name, "png": f"f{i:04d}.png", "delay_cs": delay})
-    json.dump({"theme": theme, "w": 1025, "h": 540, "frames": manifest},
+    json.dump({"theme": theme, "w": PANEL_W, "h": CARD_H, "frames": manifest},
               open(os.path.join(outdir, "manifest.json"), "w"))
     return len(manifest)
 

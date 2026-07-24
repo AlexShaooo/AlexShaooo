@@ -18,7 +18,8 @@ QUERY_COUNT = {'user_getter': 0, 'follower_getter': 0, 'graph_repos_stars': 0, '
 
 # SVG templates to update. Any that are missing are skipped, so the portrait and
 # monogram variants can both stay live without touching this list.
-SVG_FILES = ['dark_mode.svg', 'light_mode.svg', 'dark_mono.svg', 'light_mono.svg']
+SVG_FILES = ['assets/dark_mode.svg', 'assets/light_mode.svg',
+             'assets/dark_mono.svg', 'assets/light_mono.svg']
 
 
 def elapsed_since(start):

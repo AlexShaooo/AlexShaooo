@@ -157,7 +157,7 @@ def _preview():
 
     os.makedirs(a.out, exist_ok=True)
     for name in ("dark_mode.svg", "light_mode.svg"):
-        src = os.path.join(repo, name)
+        src = os.path.join(repo, "assets", name)
         if not os.path.exists(src):
             print(f"(no {name}; skipping)")
             continue

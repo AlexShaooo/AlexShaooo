@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-Build the two animated WebP profile cards from the committed card SVGs:
+Build the two animated LEFT portrait images (the fixed animation) as WebP:
 
-    warhol_pastel_light.webp   warhol_pastel_dark.webp   (repo root)
+    assets/left_light.webp   assets/left_dark.webp
 
-Pipeline: bake frozen frames (tools/warhol.py) -> render to PNG with one headless
-Chrome (tools/warhol_render.js) -> assemble a looping lossless animated WebP with
-img2webp, honouring per-frame delays. Run after today.py so the frames carry the
-current stats + graph. Used locally and by the weekly Action.
+Pipeline: bake frozen frames (tools/warhol/warhol.py, from left_<theme>.svg) ->
+render to PNG with one headless Chrome (tools/warhol/warhol_render.js) -> assemble
+a looping lossless animated WebP with img2webp, honouring per-frame delays.
+
+The portrait flip is fixed art, so this runs LOCALLY on demand (when the photo or
+flip design changes), not in the weekly Action. The weekly Action only reruns
+today.py to refresh the separate right-panel stats SVGs.
 
 Requirements: python3, node (>=21), a Chrome/Chromium (set CHROME_PATH if needed),
 and img2webp (libwebp). Nothing writes outside a temp build dir except the two
@@ -46,7 +49,7 @@ def main():
 
         for th in THEMES:
             man = json.load(open(os.path.join(dirs[th], "manifest.json")))
-            out = os.path.join(ROOT, f"warhol_pastel_{th}.webp")
+            out = os.path.join(ROOT, "assets", f"left_{th}.webp")
             args = ["img2webp", "-loop", "0", "-lossless", "-m", "6"]
             for fr in man["frames"]:
                 args += ["-d", str(fr["delay_cs"] * 10), os.path.join(dirs[th], fr["png"])]

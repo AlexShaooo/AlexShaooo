@@ -21,6 +21,100 @@ QUERY_COUNT = {'user_getter': 0, 'follower_getter': 0, 'graph_repos_stars': 0, '
 SVG_FILES = ['assets/dark_mode.svg', 'assets/light_mode.svg',
              'assets/dark_mono.svg', 'assets/light_mono.svg']
 
+# GitHub's GraphQL API answers HTTP 200 even when it cannot resolve part of the query.
+# The unresolved field comes back null and the reason is in a top-level 'errors' array.
+# Dereferencing those nulls without checking is what took a whole run down with a bare
+# TypeError that named nothing. The helpers below record the damage instead.
+ANOMALIES = []        # report lines, deduplicated, printed at the end of the run
+RESOLVED_REPOS = {}   # query label -> set of nameWithOwner that came back non-null
+
+
+def report_anomaly(line):
+    """
+    Records one anomaly and prints it as it happens. Under GitHub Actions it is also
+    emitted as a workflow warning so it shows on the run summary without failing the job.
+    """
+    if line in ANOMALIES:
+        return
+    ANOMALIES.append(line)
+    print('anomaly:', line, file=sys.stderr)
+    if os.environ.get('GITHUB_ACTIONS'):
+        print('::warning title=today.py anomaly::' + line.replace('\n', ' '))
+
+
+def resolved_edges(label, edges):
+    """
+    Drops repository edges whose node came back null, and records each one.
+
+    A null node carries no name by definition, so the edge index and the resolved
+    neighbours are recorded to place it. The surviving names are kept per query so
+    anomaly_report can identify the repository by set difference afterwards.
+    """
+    kept = []
+    for index, edge in enumerate(edges):
+        node = (edge or {}).get('node')
+        if node is not None and node.get('nameWithOwner') is not None:
+            kept.append(edge)
+            continue
+        neighbours = []
+        for offset in (-1, 1):
+            if 0 <= index + offset < len(edges):
+                other = (edges[index + offset] or {}).get('node') or {}
+                neighbours.append('%s=%s' % ('after' if offset < 0 else 'before',
+                                             other.get('nameWithOwner') or 'null'))
+        report_anomaly('%s: edge %d of %d came back null and is excluded from this run (%s)'
+                       % (label, index, len(edges), ', '.join(neighbours) or 'no neighbours'))
+    RESOLVED_REPOS.setdefault(label, set()).update(edge['node']['nameWithOwner'] for edge in kept)
+    return kept
+
+
+def read_cache_hashes():
+    """
+    Repository name hashes in the cache file before this run rewrites it. Used to spot
+    repositories that were readable last week and are not readable now.
+    """
+    filename = 'cache/' + hashlib.sha256(USER_NAME.encode('utf-8')).hexdigest() + '.txt'
+    try:
+        with open(filename, 'r') as f:
+            return {line.split()[0] for line in f if len(line.split()) == 5 and len(line.split()[0]) == 64}
+    except (FileNotFoundError, IndexError):
+        return set()
+
+
+def anomaly_report(prior_hashes):
+    """
+    Prints what this run could not read.
+
+    Nothing here changes the numbers; it exists so a partial result is visible instead
+    of silent. A null node carries no name, but the two repository queries overlap, so a
+    repository this account owns that resolved in the wider loc_query and not in the
+    OWNER-only query is the one that failed.
+    """
+    if not ANOMALIES:
+        print('\nData integrity: every repository resolved, no GraphQL errors.')
+        return
+    print('\nData integrity: %d anomal%s this run' % (len(ANOMALIES), 'y' if len(ANOMALIES) == 1 else 'ies'))
+    for line in ANOMALIES:
+        print('   ' + line)
+
+    loc_set = RESOLVED_REPOS.get('loc_query', set())
+    stars_set = RESOLVED_REPOS.get('graph_repos_stars', set())
+    owned = {name for name in loc_set if name.split('/')[0].lower() == USER_NAME.lower()}
+    missing = sorted(owned - stars_set)
+    if missing:
+        print('   owned repos that resolved in loc_query but not in the OWNER-only query:')
+        for name in missing:
+            print('      ' + name)
+
+    seen = {hashlib.sha256(name.encode('utf-8')).hexdigest() for name in loc_set | stars_set}
+    vanished = sorted(prior_hashes - seen)
+    if vanished:
+        print('   %d repo(s) in the previous cache did not resolve this run. The cache stores'
+              % len(vanished))
+        print('   name hashes only, so these cannot be named here:')
+        for repo_hash in vanished:
+            print('      ' + repo_hash)
+
 
 def elapsed_since(start):
     """
@@ -50,9 +144,22 @@ def format_plural(unit):
 def simple_request(func_name, query, variables):
     """
     Returns a request, or raises an Exception if the response does not succeed.
+
+    A 200 can still carry a partial result. GitHub puts the reason in a top-level
+    'errors' array naming the failing path and the type (FORBIDDEN, NOT_FOUND,
+    TIMEDOUT). That array used to be discarded, which is what made the failure opaque.
     """
     request = requests.post('https://api.github.com/graphql', json={'query': query, 'variables':variables}, headers=HEADERS)
     if request.status_code == 200:
+        try:
+            errors = request.json().get('errors') or []
+        except ValueError:
+            errors = []
+        for error in errors:
+            report_anomaly('%s: GraphQL %s at %s: %s' % (
+                func_name, error.get('type', 'ERROR'),
+                '.'.join(str(part) for part in error.get('path', [])) or '<no path>',
+                error.get('message', '')))
         return request
     raise Exception(func_name, ' has failed with a', request.status_code, request.text, QUERY_COUNT)
 
@@ -204,10 +311,16 @@ def graph_repos_stars(count_type, owner_affiliation, cursor=None, add_loc=0, del
     variables = {'owner_affiliation': owner_affiliation, 'login': USER_NAME, 'cursor': cursor}
     request = simple_request(graph_repos_stars.__name__, query, variables)
     if request.status_code == 200:
+        repositories = request.json()['data']['user']['repositories']
+        resolved = resolved_edges('graph_repos_stars', repositories['edges'])
+        if len(resolved) != repositories['totalCount']:
+            report_anomaly('graph_repos_stars: totalCount is %d but only %d repos resolved, so the '
+                           'Repos stat counts %d and the Stars stat covers %d of them'
+                           % (repositories['totalCount'], len(resolved), repositories['totalCount'], len(resolved)))
         if count_type == 'repos':
-            return request.json()['data']['user']['repositories']['totalCount']
+            return repositories['totalCount']
         elif count_type == 'stars':
-            return stars_counter(request.json()['data']['user']['repositories']['edges'])
+            return stars_counter(resolved)
 
 
 def recursive_loc(owner, repo_name, data, cache_comment, addition_total=0, deletion_total=0, my_commits=0, cursor=None):
@@ -275,7 +388,7 @@ def loc_counter_one_repo(owner, repo_name, data, cache_comment, history, additio
     else: return recursive_loc(owner, repo_name, data, cache_comment, addition_total, deletion_total, my_commits, history['pageInfo']['endCursor'])
 
 
-def loc_query(owner_affiliation, comment_size=0, force_cache=False, cursor=None, edges=[]):
+def loc_query(owner_affiliation, comment_size=0, force_cache=False, cursor=None, edges=None):
     """
     Uses GitHub's GraphQL v4 API to query all the repositories I have access to (with respect to owner_affiliation)
     Queries 60 repos at a time, because larger queries give a 502 timeout error and smaller queries send too many
@@ -311,12 +424,13 @@ def loc_query(owner_affiliation, comment_size=0, force_cache=False, cursor=None,
         }
     }'''
     variables = {'owner_affiliation': owner_affiliation, 'login': USER_NAME, 'cursor': cursor}
+    if edges is None: edges = []   # a shared [] default would accumulate across calls
     request = simple_request(loc_query.__name__, query, variables)
-    if request.json()['data']['user']['repositories']['pageInfo']['hasNextPage']:   # If repository data has another page
-        edges += request.json()['data']['user']['repositories']['edges']            # Add on to the LoC count
-        return loc_query(owner_affiliation, comment_size, force_cache, request.json()['data']['user']['repositories']['pageInfo']['endCursor'], edges)
-    else:
-        return cache_builder(edges + request.json()['data']['user']['repositories']['edges'], comment_size, force_cache)
+    repositories = request.json()['data']['user']['repositories']
+    page = resolved_edges('loc_query', repositories['edges'])                       # drop unreadable repos
+    if repositories['pageInfo']['hasNextPage']:                                     # If repository data has another page
+        return loc_query(owner_affiliation, comment_size, force_cache, repositories['pageInfo']['endCursor'], edges + page)
+    return cache_builder(edges + page, comment_size, force_cache)
 
 
 def cache_builder(edges, comment_size, force_cache, loc_add=0, loc_del=0):
@@ -345,14 +459,18 @@ def cache_builder(edges, comment_size, force_cache, loc_add=0, loc_del=0):
     cache_comment = data[:comment_size] # save the comment block
     data = data[comment_size:] # remove those lines
     for index in range(len(edges)):
+        node = (edges[index] or {}).get('node') or {}
+        if node.get('nameWithOwner') is None:   # unreadable repo: keep its cached line, do not crash
+            report_anomaly('cache_builder: repo at index %d is unreadable; its lines of code stay at the cached value' % index)
+            continue
         repo_hash, commit_count, *__ = data[index].split()
-        if repo_hash == hashlib.sha256(edges[index]['node']['nameWithOwner'].encode('utf-8')).hexdigest():
+        if repo_hash == hashlib.sha256(node['nameWithOwner'].encode('utf-8')).hexdigest():
             try:
-                if int(commit_count) != edges[index]['node']['defaultBranchRef']['target']['history']['totalCount']:
+                if int(commit_count) != node['defaultBranchRef']['target']['history']['totalCount']:
                     # if commit count has changed, update loc for that repo
-                    owner, repo_name = edges[index]['node']['nameWithOwner'].split('/')
+                    owner, repo_name = node['nameWithOwner'].split('/')
                     loc = recursive_loc(owner, repo_name, data, cache_comment)
-                    data[index] = repo_hash + ' ' + str(edges[index]['node']['defaultBranchRef']['target']['history']['totalCount']) + ' ' + str(loc[2]) + ' ' + str(loc[0]) + ' ' + str(loc[1]) + '\n'
+                    data[index] = repo_hash + ' ' + str(node['defaultBranchRef']['target']['history']['totalCount']) + ' ' + str(loc[2]) + ' ' + str(loc[0]) + ' ' + str(loc[1]) + '\n'
             except TypeError: # If the repo is empty
                 data[index] = repo_hash + ' 0 0 0 0\n'
     with open(filename, 'w') as f:
@@ -376,8 +494,9 @@ def flush_cache(edges, filename, comment_size):
             data = f.readlines()[:comment_size] # only save the comment
     with open(filename, 'w') as f:
         f.writelines(data)
-        for node in edges:
-            f.write(hashlib.sha256(node['node']['nameWithOwner'].encode('utf-8')).hexdigest() + ' 0 0 0 0\n')
+        for edge in edges:
+            name = ((edge or {}).get('node') or {}).get('nameWithOwner')
+            f.write(hashlib.sha256((name or '<unreadable>').encode('utf-8')).hexdigest() + ' 0 0 0 0\n')
 
 
 def force_close_file(data, cache_comment):
@@ -397,7 +516,12 @@ def stars_counter(data):
     Count total stars in repositories owned by me
     """
     total_stars = 0
-    for node in data: total_stars += node['node']['stargazers']['totalCount']
+    for edge in data:
+        stars = (((edge or {}).get('node') or {}).get('stargazers') or {}).get('totalCount')
+        if stars is None:
+            report_anomaly('stars_counter: a repository reported no stargazer count and was skipped')
+            continue
+        total_stars += stars
     return total_stars
 
 
@@ -512,6 +636,7 @@ if __name__ == '__main__':
     Alex Shao (AlexShaooo). Adapted from Andrew6rant's github-stats generator.
     'Uptime' reports GitHub account age rather than a birthday.
     """
+    prior_hashes = read_cache_hashes()   # snapshot before cache_builder rewrites the file
     print('Calculation times:')
     # define global variable for owner ID and calculate the account creation date
     user_data, user_time = perf_counter(user_getter, USER_NAME)
@@ -550,3 +675,5 @@ if __name__ == '__main__':
 
     print('Total GitHub GraphQL API calls:', '{:>3}'.format(sum(QUERY_COUNT.values())))
     for funct_name, count in QUERY_COUNT.items(): print('{:<28}'.format('   ' + funct_name + ':'), '{:>6}'.format(count))
+
+    anomaly_report(prior_hashes)

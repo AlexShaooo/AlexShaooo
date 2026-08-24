@@ -29,6 +29,20 @@ ANOMALIES = []        # report lines, deduplicated, printed at the end of the ru
 RESOLVED_REPOS = {}   # query label -> set of nameWithOwner that came back non-null
 
 
+def safe_repo(name):
+    """
+    Repository names are withheld by default. This profile repo is public, so its Actions
+    logs are public, and most of the repos these queries touch are not. Set SHOW_REPO_NAMES=1
+    for a local run to print them. The short hash is stable, so a masked line from a CI log
+    can be matched against a local run.
+    """
+    if name is None:
+        return 'null'
+    if os.environ.get('SHOW_REPO_NAMES'):
+        return name
+    return 'repo:' + hashlib.sha256(name.encode('utf-8')).hexdigest()[:12]
+
+
 def report_anomaly(line):
     """
     Records one anomaly and prints it as it happens. Under GitHub Actions it is also
@@ -61,7 +75,7 @@ def resolved_edges(label, edges):
             if 0 <= index + offset < len(edges):
                 other = (edges[index + offset] or {}).get('node') or {}
                 neighbours.append('%s=%s' % ('after' if offset < 0 else 'before',
-                                             other.get('nameWithOwner') or 'null'))
+                                             safe_repo(other.get('nameWithOwner'))))
         report_anomaly('%s: edge %d of %d came back null and is excluded from this run (%s)'
                        % (label, index, len(edges), ', '.join(neighbours) or 'no neighbours'))
     RESOLVED_REPOS.setdefault(label, set()).update(edge['node']['nameWithOwner'] for edge in kept)
@@ -102,9 +116,11 @@ def anomaly_report(prior_hashes):
     owned = {name for name in loc_set if name.split('/')[0].lower() == USER_NAME.lower()}
     missing = sorted(owned - stars_set)
     if missing:
-        print('   owned repos that resolved in loc_query but not in the OWNER-only query:')
+        print('   %d owned repo(s) resolved in loc_query but not in the OWNER-only query:' % len(missing))
         for name in missing:
-            print('      ' + name)
+            print('      ' + safe_repo(name))
+        if not os.environ.get('SHOW_REPO_NAMES'):
+            print('   (names withheld; rerun locally with SHOW_REPO_NAMES=1 to resolve the hashes)')
 
     seen = {hashlib.sha256(name.encode('utf-8')).hexdigest() for name in loc_set | stars_set}
     vanished = sorted(prior_hashes - seen)
@@ -295,9 +311,7 @@ def graph_repos_stars(count_type, owner_affiliation, cursor=None, add_loc=0, del
                     node {
                         ... on Repository {
                             nameWithOwner
-                            stargazers {
-                                totalCount
-                            }
+                            stargazerCount
                         }
                     }
                 }
@@ -517,7 +531,7 @@ def stars_counter(data):
     """
     total_stars = 0
     for edge in data:
-        stars = (((edge or {}).get('node') or {}).get('stargazers') or {}).get('totalCount')
+        stars = ((edge or {}).get('node') or {}).get('stargazerCount')
         if stars is None:
             report_anomaly('stars_counter: a repository reported no stargazer count and was skipped')
             continue

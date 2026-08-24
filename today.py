@@ -6,6 +6,7 @@ import sys
 from lxml import etree
 import time
 import hashlib
+import re
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools'))
 import commit_graph
 
@@ -41,6 +42,24 @@ def safe_repo(name):
     if os.environ.get('SHOW_REPO_NAMES'):
         return name
     return 'repo:' + hashlib.sha256(name.encode('utf-8')).hexdigest()[:12]
+
+
+# owner/repo, anchored so dotted hostnames in URLs are not caught
+REPO_NAME_RE = re.compile(r'(?<![A-Za-z0-9._-])[A-Za-z0-9-]+/[A-Za-z0-9._-]+')
+
+
+def scrub(text):
+    """
+    Replaces anything shaped like owner/repo with its safe_repo() form. GraphQL error
+    messages quote repository names (NOT_FOUND says which one), and a raw response body
+    can carry the whole list, so nothing unscrubbed goes to stdout, stderr, or an
+    exception message.
+    """
+    if not text:
+        return ''
+    if os.environ.get('SHOW_REPO_NAMES'):
+        return text
+    return REPO_NAME_RE.sub(lambda match: safe_repo(match.group(0)), text)
 
 
 def report_anomaly(line):
@@ -175,9 +194,9 @@ def simple_request(func_name, query, variables):
             report_anomaly('%s: GraphQL %s at %s: %s' % (
                 func_name, error.get('type', 'ERROR'),
                 '.'.join(str(part) for part in error.get('path', [])) or '<no path>',
-                error.get('message', '')))
+                scrub(error.get('message', ''))))
         return request
-    raise Exception(func_name, ' has failed with a', request.status_code, request.text, QUERY_COUNT)
+    raise Exception(func_name, ' has failed with a', request.status_code, scrub(request.text)[:500], QUERY_COUNT)
 
 
 def contribution_years():
@@ -383,7 +402,7 @@ def recursive_loc(owner, repo_name, data, cache_comment, addition_total=0, delet
     force_close_file(data, cache_comment) # saves what is currently in the file before this program crashes
     if request.status_code == 403:
         raise Exception('Too many requests in a short amount of time!\nYou\'ve hit the non-documented anti-abuse limit!')
-    raise Exception('recursive_loc() has failed with a', request.status_code, request.text, QUERY_COUNT)
+    raise Exception('recursive_loc() has failed with a', request.status_code, scrub(request.text)[:500], QUERY_COUNT)
 
 
 def loc_counter_one_repo(owner, repo_name, data, cache_comment, history, addition_total, deletion_total, my_commits):
